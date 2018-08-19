@@ -1347,6 +1347,9 @@ RECOVERYIMAGE_ID_FILE := $(PRODUCT_OUT)/recovery.id
 
 # $(1): output file
 define build-recoveryimage-target
+  @echo "Generating Changelog for Colt"
+  $(hide) ./vendor/colt/tools/changelog.sh
+  $(hide) mv $(PRODUCT_OUT)/Changelog.txt $(PRODUCT_OUT)/ColtOS-$(COLT_VERSION)-$(shell date -u +%Y%m%d-%H%M)-Changelog.txt
   # Making recovery image
   $(hide) mkdir -p $(TARGET_RECOVERY_OUT)
   $(hide) mkdir -p $(TARGET_RECOVERY_ROOT_OUT)/etc $(TARGET_RECOVERY_ROOT_OUT)/sdcard $(TARGET_RECOVERY_ROOT_OUT)/tmp
