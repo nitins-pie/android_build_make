@@ -79,7 +79,6 @@ report_config_sh += $(foreach v,$(print_build_config_vars),echo '$v=$($(v))';)
 report_config_sh += echo '============================================';
 endif
 
->>>>>>> 7cb1e10... May Favourite Part ~ Flashing Script Added
 # Dump mulitple variables to "<var>=<value>" pairs, one per line.
 # The output may be executed as bash script.
 # Input variables:
