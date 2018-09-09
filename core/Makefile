@@ -1494,6 +1494,10 @@ INTERNAL_SYSTEMIMAGE_FILES := $(filter $(TARGET_OUT)/%, \
 
 FULL_SYSTEMIMAGE_DEPS := $(INTERNAL_SYSTEMIMAGE_FILES) $(INTERNAL_USERIMAGES_DEPS)
 
+ifeq ($(BOARD_BUILD_SYSTEM_ROOT_IMAGE),true)
+  FULL_SYSTEMIMAGE_DEPS += $(INSTALLED_KERNEL_TARGET)
+endif
+
 # ASAN libraries in the system image - add dependency.
 ASAN_IN_SYSTEM_INSTALLED := $(TARGET_OUT)/asan.tar.bz2
 ifneq (,$(SANITIZE_TARGET))
@@ -2031,8 +2035,10 @@ vendorimage-nodeps vnod: | $(INTERNAL_USERIMAGES_DEPS) $(DEPMOD)
 sync: $(INTERNAL_VENDORIMAGE_FILES)
 
 else ifdef BOARD_PREBUILT_VENDORIMAGE
+ifneq (true,$(BOARD_PREBUILT_VENDORIMAGE))
 INSTALLED_VENDORIMAGE_TARGET := $(PRODUCT_OUT)/vendor.img
 $(eval $(call copy-one-file,$(BOARD_PREBUILT_VENDORIMAGE),$(INSTALLED_VENDORIMAGE_TARGET)))
+endif
 endif
 
 # -----------------------------------------------------------------
@@ -2103,6 +2109,10 @@ $(INSTALLED_DTBOIMAGE_TARGET): $(BOARD_PREBUILT_DTBOIMAGE)
 	cp $(BOARD_PREBUILT_DTBOIMAGE) $@
 endif
 
+endif
+
+ifdef TARGET_NEEDS_DTBOIMAGE
+INSTALLED_DTBOIMAGE_TARGET := $(PRODUCT_OUT)/dtbo.img
 endif
 
 # -----------------------------------------------------------------
@@ -2289,6 +2299,10 @@ INSTALLED_VBMETAIMAGE_TARGET := $(BUILT_DISABLED_VBMETAIMAGE)
 $(INSTALLED_VBMETAIMAGE_TARGET): $(AVBTOOL)
 	$(hide) $(AVBTOOL) make_vbmeta_image \
 	  --flag 2 --padding_size 4096 --output $@
+
+else ifdef BOARD_PREBUILT_VBMETAIMAGE
+INSTALLED_VBMETAIMAGE_TARGET := $(PRODUCT_OUT)/vbmeta.img
+$(eval $(call copy-one-file,$(BOARD_PREBUILT_VBMETAIMAGE),$(INSTALLED_VBMETAIMAGE_TARGET)))
 
 endif # BOARD_AVB_ENABLE
 
@@ -2780,9 +2794,17 @@ ifeq (true,$(BOARD_BUILD_DISABLED_VBMETAIMAGE))
 	$(hide) mkdir -p $(zip_root)/IMAGES
 	$(hide) cp $(INSTALLED_VBMETAIMAGE_TARGET) $(zip_root)/IMAGES/
 endif
+ifdef BOARD_PREBUILT_VBMETAIMAGE
+	$(hide) mkdir -p $(zip_root)/IMAGES
+	$(hide) cp $(INSTALLED_VBMETAIMAGE_TARGET) $(zip_root)/IMAGES/
+endif
 ifdef BOARD_PREBUILT_VENDORIMAGE
+ifeq (true,$(BOARD_PREBUILT_VENDORIMAGE))
+	$(hide) echo "vendor_prebuilt_installed=true" >> $(zip_root)/META/misc_info.txt
+else
 	$(hide) mkdir -p $(zip_root)/IMAGES
 	$(hide) cp $(INSTALLED_VENDORIMAGE_TARGET) $(zip_root)/IMAGES/
+endif
 endif
 ifdef BOARD_PREBUILT_PRODUCTIMAGE
 	$(hide) mkdir -p $(zip_root)/IMAGES
@@ -2792,7 +2814,7 @@ ifdef BOARD_PREBUILT_BOOTIMAGE
 	$(hide) mkdir -p $(zip_root)/IMAGES
 	$(hide) cp $(INSTALLED_BOOTIMAGE_TARGET) $(zip_root)/IMAGES/
 endif
-ifdef BOARD_PREBUILT_DTBOIMAGE
+ifdef INSTALLED_DTBOIMAGE_TARGET
 	$(hide) mkdir -p $(zip_root)/PREBUILT_IMAGES
 	$(hide) cp $(INSTALLED_DTBOIMAGE_TARGET) $(zip_root)/PREBUILT_IMAGES/
 	$(hide) echo "has_dtbo=true" >> $(zip_root)/META/misc_info.txt
@@ -2806,7 +2828,7 @@ ifdef BOARD_AVB_DTBO_KEY_PATH
 	    >> $(zip_root)/META/misc_info.txt
 endif # BOARD_AVB_DTBO_KEY_PATH
 endif # BOARD_AVB_ENABLE
-endif # BOARD_PREBUILT_DTBOIMAGE
+endif # INSTALLED_DTBOIMAGE_TARGET
 	@# The radio images in BOARD_PACK_RADIOIMAGES will be additionally copied from RADIO/ into
 	@# IMAGES/, which then will be added into <product>-img.zip. Such images must be listed in
 	@# INSTALLED_RADIOIMAGE_TARGET.
@@ -2853,7 +2875,7 @@ endif
 	@# help early validation of the .zip file while uploading it.
 	$(hide) find $(zip_root)/META | sort >$@.list
 	$(hide) find $(zip_root) -path $(zip_root)/META -prune -o -print | sort >>$@.list
-	$(hide) $(SOONG_ZIP) -d -o $@ -C $(zip_root) -l $@.list
+	$(hide) $(SOONG_ZIP) -L 0 -d -o $@ -C $(zip_root) -l $@.list
 
 .PHONY: target-files-package
 target-files-package: $(BUILT_TARGET_FILES_PACKAGE)
