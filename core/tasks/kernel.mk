@@ -70,6 +70,7 @@
 #   NEED_KERNEL_MODULE_ROOT            = Optional, if true, install kernel
 #                                          modules in root instead of system
 
+ifneq ($(TARGET_NO_KERNEL),true)
 
 TARGET_AUTO_KDIR := $(shell echo $(TARGET_DEVICE_DIR) | sed -e 's/^device/kernel/g')
 
@@ -135,9 +136,6 @@ endif
 ifeq ($(KERNEL_ARCH),arm64)
   # Avoid "unsupported RELA relocation: 311" errors (R_AARCH64_ADR_GOT_PAGE)
   MAKE_FLAGS += CFLAGS_MODULE="-fno-pic"
-  ifeq ($(TARGET_ARCH),arm)
-    KERNEL_CONFIG_OVERRIDE := CONFIG_ANDROID_BINDER_IPC_32BIT=y
-  endif
 endif
 
 ifneq ($(TARGET_KERNEL_ADDITIONAL_CONFIG),)
@@ -283,7 +281,9 @@ endif
 
 ifeq ($(TARGET_KERNEL_CLANG_COMPILE),true)
     KERNEL_CROSS_COMPILE := CROSS_COMPILE="$(KERNEL_TOOLCHAIN_PATH)"
-    KERNEL_CC ?= CC="$(ccache) $(TARGET_KERNEL_CLANG_PATH)/clang"
+    ifeq ($(KERNEL_CC),)
+        KERNEL_CC := CC="$(ccache) $(TARGET_KERNEL_CLANG_PATH)/clang"
+    endif
 else
     KERNEL_CROSS_COMPILE := CROSS_COMPILE="$(ccache) $(KERNEL_TOOLCHAIN_PATH)"
 endif
@@ -344,7 +344,7 @@ TARGET_KERNEL_BINARIES: $(KERNEL_OUT_STAMP) $(KERNEL_CONFIG) $(KERNEL_HEADERS_IN
 		fi
 
 .PHONY: INSTALLED_KERNEL_MODULES
-INSTALLED_KERNEL_MODULES: depmod
+INSTALLED_KERNEL_MODULES: depmod-host
 	$(hide) if grep -q '^CONFIG_MODULES=y' $(KERNEL_CONFIG); then \
 			echo "Installing Kernel Modules"; \
 			$(MAKE) $(MAKE_FLAGS) -C $(KERNEL_SRC) O=$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) $(KERNEL_CROSS_COMPILE) $(KERNEL_CLANG_TRIPLE) $(KERNEL_CC) INSTALL_MOD_PATH=../../$(KERNEL_MODULES_INSTALL) modules_install && \
@@ -356,7 +356,7 @@ INSTALLED_KERNEL_MODULES: depmod
 			done && \
 			rm -rf $$mpath && \
 			mkdir -p $(KERNEL_DEPMOD_STAGING_DIR)/lib/modules/0.0/$(KERNEL_MODULE_MOUNTPOINT)/lib/modules && \
-			cp $(KERNEL_MODULES_OUT)/*.ko $(KERNEL_DEPMOD_STAGING_DIR)/lib/modules/0.0/$(KERNEL_MODULE_MOUNTPOINT)/lib/modules && \
+			find $(KERNEL_MODULES_OUT) -name *.ko -exec cp {} $(KERNEL_DEPMOD_STAGING_DIR)/lib/modules/0.0/$(KERNEL_MODULE_MOUNTPOINT)/lib/modules \; && \
 			$(DEPMOD) -b $(KERNEL_DEPMOD_STAGING_DIR) 0.0 && \
 			sed -e 's/\(.*modules.*\):/\/\1:/g' -e 's/ \([^ ]*modules[^ ]*\)/ \/\1/g' $(KERNEL_DEPMOD_STAGING_DIR)/lib/modules/0.0/modules.dep > $(KERNEL_MODULES_OUT)/modules.dep; \
 		fi
@@ -413,6 +413,24 @@ alldefconfig: $(KERNEL_OUT_STAMP)
 
 endif # FULL_KERNEL_BUILD
 
+TARGET_PREBUILT_DTBO = $(PRODUCT_OUT)/dtbo/arch/$(KERNEL_ARCH)/boot/dtbo.img
+ifeq ($(BOARD_AVB_ENABLE),true)
+$(TARGET_PREBUILT_DTBO): $(AVBTOOL)
+	echo -e ${CL_GRN}"Building DTBO.img"${CL_RST}
+	$(MAKE) $(MAKE_FLAGS) -C $(KERNEL_SRC) O=$(PRODUCT_OUT)/dtbo ARCH=$(KERNEL_ARCH) $(KERNEL_CROSS_COMPILE) $(KERNEL_CLANG_TRIPLE) $(KERNEL_CC) $(KERNEL_DEFCONFIG)
+	$(MAKE) $(MAKE_FLAGS) -C $(KERNEL_SRC) O=$(PRODUCT_OUT)/dtbo ARCH=$(KERNEL_ARCH) $(KERNEL_CROSS_COMPILE) $(KERNEL_CLANG_TRIPLE) $(KERNEL_CC) dtbo.img
+	$(AVBTOOL) add_hash_footer \
+		--image $@ \
+		--partition_size $(BOARD_DTBOIMG_PARTITION_SIZE) \
+		--partition_name dtbo $(INTERNAL_AVB_DTBO_SIGNING_ARGS) \
+		$(BOARD_AVB_DTBO_ADD_HASH_FOOTER_ARGS)
+else
+$(TARGET_PREBUILT_DTBO):
+	echo -e ${CL_GRN}"Building DTBO.img"${CL_RST}
+	$(MAKE) $(MAKE_FLAGS) -C $(KERNEL_SRC) O=$(PRODUCT_OUT)/dtbo ARCH=$(KERNEL_ARCH) $(KERNEL_CROSS_COMPILE) $(KERNEL_CLANG_TRIPLE) $(KERNEL_CC) $(KERNEL_DEFCONFIG)
+	$(MAKE) $(MAKE_FLAGS) -C $(KERNEL_SRC) O=$(PRODUCT_OUT)/dtbo ARCH=$(KERNEL_ARCH) $(KERNEL_CROSS_COMPILE) $(KERNEL_CLANG_TRIPLE) $(KERNEL_CC) dtbo.img
+endif #BOARD_AVB_ENABLE
+
 ## Install it
 
 ifeq ($(NEEDS_KERNEL_COPY),true)
@@ -424,5 +442,19 @@ $(file) : $(KERNEL_BIN) | $(ACP)
 ALL_PREBUILT += $(INSTALLED_KERNEL_TARGET)
 endif
 
+ifeq ($(TARGET_NEEDS_DTBOIMAGE),true)
+file := $(INSTALLED_DTBOIMAGE_TARGET)
+ALL_PREBUILT += $(file)
+$(file) : $(TARGET_PREBUILT_DTBO) | $(ACP)
+	$(transform-prebuilt-to-target)
+
+ALL_PREBUILT += $(INSTALLED_DTBOIMAGE_TARGET)
+endif
+
 .PHONY: kernel
 kernel: $(INSTALLED_KERNEL_TARGET)
+
+.PHONY: dtbo
+dtbo: $(INSTALLED_DTBOIMAGE_TARGET)
+
+endif # TARGET_NO_KERNEL
